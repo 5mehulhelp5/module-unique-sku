@@ -1,0 +1,10 @@
+{
+    "catalog_product_entity": {
+        "index": {
+            "CATALOG_PRODUCT_ENTITY_SKU": true
+        },
+        "constraint": {
+            "CATALOG_PRODUCT_ENTITY_SKU": true
+        }
+    }
+}

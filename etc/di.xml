@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <type name="Magento\Catalog\Api\ProductRepositoryInterface">
+        <plugin name="brocode_unique_sku_lock_during_save"
+                type="BroCode\UniqueSku\Plugin\LockSkuDuringSave"
+                sortOrder="10"/>
+    </type>
+    <type name="BroCode\UniqueSku\Plugin\LockSkuDuringSave">
+        <arguments>
+            <argument name="lockTimeout" xsi:type="number">10</argument>
+        </arguments>
+    </type>
+</config>

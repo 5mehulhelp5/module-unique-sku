@@ -1,0 +1,4 @@
+*.php text eol=lf
+*.xml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
