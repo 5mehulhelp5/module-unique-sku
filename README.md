@@ -67,6 +67,29 @@ Two parallel `POST /V1/products` with the identical SKU:
 Five further repository-level races with both layers installed: one row, five times out
 of five.
 
+## Tests
+
+```bash
+# unit - the lock contract, including every SKU spelling that must share one lock
+ddev exec vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist \
+  app/code/BroCode/UniqueSku/Test/Unit
+
+# integration - the constraint, the collation, and the database rejecting a duplicate
+ddev exec vendor/bin/phpunit -c dev/tests/integration/phpunit.xml.dist \
+  /var/www/html/app/code/BroCode/UniqueSku/Test/Integration
+```
+
+`Test/Unit/Plugin/LockSkuDuringSaveTest.php` covers the lock being held across the save
+and released afterwards, released again when the save throws, never released when it was
+never taken, a nested save of the same SKU taking it only once, an empty SKU passing
+straight through — and the spellings that must contend for one lock: identical, different
+case, mixed case, leading whitespace, trailing whitespace, and tab-plus-case at once.
+`Test/Integration/UniqueSkuTest.php` proves the same normalization against a real
+database: a differently cased SKU updates the same product rather than creating a second.
+
+12 unit tests, 3 integration tests, green on 2.4.8-p5. The race itself needs two
+processes and lives in the reproducer above, not in PHPUnit.
+
 ## Compatibility
 
 **Adobe Commerce with Content Staging is not supported.** `Magento_Staging` replaces the
