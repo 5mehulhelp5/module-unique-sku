@@ -50,9 +50,11 @@ existence check to the commit. The constraint turns the losing request into a cl
 failure; the lock removes the loser entirely, so the second request becomes the update
 it was always meant to be.
 
-The lock name is `md5(mb_strtolower(trim($sku)))`, matching both the case-insensitive
-collation of the `sku` column and `ProductRepository::prepareSku()`, so two spellings
-the database treats as one row also take one lock.
+The lock name is the first 32 hex characters of `sha256(mb_strtolower(trim($sku)))`,
+matching both the case-insensitive collation of the `sku` column and
+`ProductRepository::prepareSku()`, so two spellings the database treats as one row also
+take one lock. That normalization is the one thing Adobe's own lock does not do — see
+[Upstream](#upstream-acsd-64118-and-what-it-still-leaves-open).
 
 ## Measured, 2.4.8-p5
 
@@ -66,6 +68,57 @@ Two parallel `POST /V1/products` with the identical SKU:
 
 Five further repository-level races with both layers installed: one row, five times out
 of five.
+
+## Upstream: ACSD-64118, and what it still leaves open
+
+Adobe shipped a lock of its own. **ACSD-64118**, in Quality Patches Tool 1.1.65, adds
+`Magento\Catalog\Model\ProductMutex` and an `aroundSave` plugin,
+`Magento\Catalog\Plugin\ProductRepositorySaveOperationSynchronizer`, registered in
+`Magento_Catalog`'s `etc/di.xml` as `add_mutex_to_save_operation`. It is the same shape
+as the plugin here: one `LockManagerInterface` lock per SKU, held across the whole save.
+It is **in 2.4.9 core**, and a patch for older releases — `patches-info.json` maps the
+one ticket to three files:
+
+| Version range | Patch file |
+|---|---|
+| `>=2.4.4 <2.4.7` | `os/ACSD-64118_2.4.5-p7.patch` |
+| `>=2.4.7 <2.4.7-p10` | `os/ACP2E-3976_2.4.7.patch` (requires ACSD-55100, ACSD-64178) |
+| `>=2.4.8 <2.4.8-p5` | `os/ACP2E-3988_2.4.8.patch` |
+
+Three things survive it.
+
+**The constraint.** 2.4.9's `catalog_product_entity` still carries
+`<index referenceId="CATALOG_PRODUCT_ENTITY_SKU" indexType="btree">`. Adobe closed the
+window; the database still has no opinion about a duplicate SKU. That half of this
+module is untouched by the patch, on every version and both editions.
+
+**The lock name is the raw SKU.** `ProductMutex` locks on `'product_mutex_' . $sku`.
+`catalog_product_entity.sku` is `utf8mb4_general_ci`, so `abc-1` and `ABC-1` are one
+row — but `GET_LOCK` compares names case- and byte-sensitively, so they are two locks.
+Measured on MariaDB 10.6, while `brocode_case_test` was held:
+`IS_USED_LOCK('brocode_case_test')` returned the connection id,
+`IS_USED_LOCK('BROCODE_CASE_TEST')` and `IS_USED_LOCK('brocode_case_test ')` both
+returned `NULL`. Two concurrent creates that differ only in case or surrounding
+whitespace pass Adobe's mutex side by side and still produce two rows. The lock here
+hashes `mb_strtolower(trim($sku))` — what `ProductRepository::prepareSku()` itself
+does — so those spellings contend for one lock.
+
+**The timeout is fixed at 60 seconds**, and the failure is
+`CouldNotSaveException('The product was unable to be saved. Please try again.')` — no
+SKU, no cause, nothing for the caller to act on. Sixty seconds is a long time to hold a
+PHP-FPM worker for a writer that may already be gone. This module waits 10 by default,
+as a DI argument, and names the SKU and the timeout.
+
+### The version that has neither
+
+On **2.4.8-p5** the patch is out of range (`>=2.4.8 <2.4.8-p5`) and
+`magento/module-catalog` `104.0.8-p5` ships no `ProductMutex` — the string does not
+occur anywhere in `vendor/`. Which is what the fourteen races above found. Before
+assuming an install is covered, ask it:
+
+```bash
+ddev exec ./vendor/bin/magento-patches status | grep 64118
+```
 
 ## Tests
 
@@ -100,6 +153,20 @@ the module with the schema part removed and keep only the lock, or do not instal
 
 The lock alone is safe on every edition — take `Plugin/` and `etc/di.xml` and drop
 `etc/db_schema.xml` if that is what you need.
+
+### 2.4.9, or an install already carrying ACSD-64118
+
+Both halves still install, and both still do something. Adobe's
+`add_mutex_to_save_operation` and this module's `brocode_unique_sku_lock_during_save`
+are both `aroundSave` plugins on `ProductRepositoryInterface`; Adobe's runs at the
+default sort order and wraps this one. Each save therefore takes two named locks and
+releases both. There is no deadlock — the order is fixed and the names never collide —
+and the nesting runs the right way round: the two spellings that pass Adobe's raw-SKU
+lock side by side meet on the normalized lock inside it.
+
+The cost is one extra `GET_LOCK` round trip per product save. If that is not worth the
+case-variant coverage for your feed, keep the constraint and turn the plugin off — see
+[Configuration](#configuration).
 
 ## Before you install
 
@@ -171,6 +238,10 @@ The schema change is [@stormbyte](https://github.com/stormbyte)'s, from
 fixes, [magento/magento2#31125](https://github.com/magento/magento2/issues/31125), was
 reported by the same author in December 2020 and is still open. This module packages
 that work so it can be installed today, and adds the lock the PR did not carry.
+
+Adobe's own lock, `ProductMutex` (ACSD-64118, and 2.4.9 core), arrived after this
+module and independently of it. Where it applies it does most of the same job; the
+differences that remain are in [Upstream](#upstream-acsd-64118-and-what-it-still-leaves-open).
 
 ## Licence
 

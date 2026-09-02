@@ -52,6 +52,16 @@ use Magento\Framework\Lock\LockManagerInterface;
  *
  * Contention is per SKU: two feeds writing different SKUs never wait on each
  * other, and only a feed that sends one SKU twice at once pays anything at all.
+ *
+ * Adobe ships the same shape from 2.4.9, and as quality patch ACSD-64118 for
+ * older releases: Magento\Catalog\Plugin\ProductRepositorySaveOperationSynchronizer
+ * around the same method, over Magento\Catalog\Model\ProductMutex. That one locks
+ * on the raw SKU ('product_mutex_' . $sku), and GET_LOCK compares names case- and
+ * byte-sensitively while catalog_product_entity.sku is utf8mb4_general_ci - so
+ * "abc-1" and "ABC-1" are one row but two of its locks, and the race stays open
+ * for them. The normalization in lockName() below is why this plugin is still
+ * worth running inside Adobe's: nested, Adobe's lock is the outer one, and the
+ * spellings it lets through side by side contend here.
  */
 class LockSkuDuringSave
 {
