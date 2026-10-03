@@ -246,3 +246,7 @@ differences that remain are in [Upstream](#upstream-acsd-64118-and-what-it-still
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+Docs, background and related modules: [brocode.at](https://brocode.at/modules/module-unique-sku/)
